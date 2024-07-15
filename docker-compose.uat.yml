@@ -1,0 +1,158 @@
+services: # Nginx Webサーバ
+  web:
+    build:
+      context: web
+      dockerfile: Dockerfile
+    ports:
+      - ${HTTP_PORT}:80
+      - ${HTTPS_PORT}:443
+    environment:
+      TZ: Asia/Tokyo
+      LANG: ja_JP.UTF-8
+      FQDN: ${FQDN}
+    volumes:
+      - ./web/html:/usr/share/nginx/html # Angular（下記のfront）でビルドした静的資材
+      - ./serverside/tmp/sockets:/myapp/tmp/sockets # railsへルーティングするためにunixソケットを共有
+      - ./web/nginx/conf.d:/etc/nginx/templates # default.confのマウント
+    networks:
+      - app
+    logging:
+      driver: json-file
+      options:
+        max-size: 5m
+        max-file: 20
+
+  # Angular フロントエンドビルド用
+  front:
+    build:
+      context: frontend
+      dockerfile: Dockerfile
+      args:
+        APP_DIR: /myapp
+    command: >
+      bash -c 
+        "npm install &&
+         ng build --configuration uat --output-path=../output/myapp"
+    volumes:
+      - ./frontend:/myapp
+      - ./web/html:/output # angularビルド結果出力先 → Webサーバへ
+    environment:
+      TZ: Asia/Tokyo
+      LANG: ja_JP.UTF-8
+      NG_CLI_ANALYTICS: "false"
+    profiles:
+      - extra
+    networks:
+      - build # ネットワークを分離しないと、起動時にエラーになる
+    logging:
+      driver: json-file
+      options:
+        max-size: 5m
+        max-file: 20
+
+  # railsサーバ
+  server:
+    build:
+      context: serverside
+      dockerfile: Dockerfile
+      args:
+        APP_DIR: /myapp
+    command: >
+      bash -c "
+        rm -f tmp/pids/server.pid &&
+        bundle install &&
+        RAILS_ENV=test bundle exec rails db:migrate &&
+        bundle exec rails s -e test
+      "
+    volumes:
+      - ./serverside:/myapp
+    depends_on:
+      - redis
+    environment:
+      RAILS_ENV: test
+      SIDEKIQ_URL: "redis://redis:6379/"
+      SIDEKIQ_READ_DIR: "tmp/sidekiq"
+      DB_DATABASE: ${DB_DATABASE}
+      DB_HOST: ${DB_HOST}
+      DB_USERNAME: ${DB_USERNAME}
+      DB_PASSWORD: ${DB_PASSWORD}
+      SESSION_TIMEOUT: 8 # SSOではなくログイン画面を使用したときのセッション時間
+      TZ: Asia/Tokyo
+      LANG: ja_JP.UTF-8
+    networks:
+      - app
+    logging:
+      driver: json-file
+      options:
+        max-size: 5m
+        max-file: 20
+
+  # サイドキック（rails用）
+  sidekiq:
+    build:
+      context: serverside
+      dockerfile: Dockerfile
+      args:
+        APP_DIR: /myapp
+    command: bundle exec sidekiq -e test
+    volumes:
+      - ./serverside:/myapp
+    environment:
+      TZ: Asia/Tokyo
+      LANG: ja_JP.UTF-8
+      SIDEKIQ_URL: "redis://redis:6379/"
+      SIDEKIQ_READ_DIR: "tmp/sidekiq"
+      DB_DATABASE: ${DB_DATABASE}
+      DB_HOST: ${DB_HOST}
+      DB_USERNAME: ${DB_USERNAME}
+      DB_PASSWORD: ${DB_PASSWORD}
+    depends_on:
+      - redis
+    networks:
+      - app
+    logging:
+      driver: json-file
+      options:
+        max-size: 5m
+        max-file: 20
+
+  # サイドキックにて使用（rails用）
+  redis:
+    image: redis:7.2.4
+    environment:
+      TZ: Asia/Tokyo
+    volumes:
+      - ./redis/data:/data
+    networks:
+      - app
+    logging:
+      driver: json-file
+      options:
+        max-size: 5m
+        max-file: 20
+
+  # データベース
+  db:
+    image: postgres:16.3
+    environment:
+      TZ: Asia/Tokyo
+      postgres_db: ${DB_DATABASE}
+      postgres_user: ${DB_USERNAME}
+      postgres_password: ${DB_PASSWORD}
+      postgres_initdb_args: "--locale=ja_jp.utf8 --locale=c"
+    ports:
+      - 5432:5432
+    networks:
+      - app
+    volumes:
+      - ./db/data:/var/lib/postgresql/data
+      # - ./db/init:/docker-entrypoint-initdb.d # 初期データ投入用
+    logging:
+      driver: json-file
+      options:
+        max-size: 5m
+        max-file: 20
+
+networks:
+  app:
+  build:
