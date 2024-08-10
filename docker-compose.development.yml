@@ -32,13 +32,15 @@ services:
 
   # データベース
   db:
-    image: postgres:16.3
+    build:
+      context: db
+      dockerfile: Dockerfile
     environment:
       TZ: Asia/Tokyo
-      postgres_db: ${DB_DATABASE}
-      postgres_user: ${DB_USERNAME}
-      postgres_password: ${DB_PASSWORD}
-      postgres_initdb_args: "--encoding=UTF-8 --locale=C"
+      POSTGRES_DB: ${DB_DATABASE}
+      POSTGRES_USER: ${DB_USERNAME}
+      POSTGRES_PASSWORD: ${DB_PASSWORD}
+      POSTGRES_INITDB_ARGS: "--encoding=UTF-8 --locale=C"
     ports:
       - 5432:5432
     volumes:
