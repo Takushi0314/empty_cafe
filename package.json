@@ -1,4 +1,8 @@
 {
+  "name": "empty_cafe",
+  "engines": {
+    "node": "20.16.0"
+  },
   "type": "module",
   "devDependencies": {
     "@commitlint/cli": "^19.4.0",
